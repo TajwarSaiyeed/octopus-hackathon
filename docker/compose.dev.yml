@@ -1,0 +1,26 @@
+name: octopus-hackathon
+
+services:
+  octopus-api:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.dev
+    ports:
+      - "3000:3000"
+    volumes:
+      - ../src:/app/src
+    env_file:
+      - ../.env
+    environment:
+      - NODE_ENV=development
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://octopus-jaeger:4318
+    depends_on:
+      - octopus-jaeger
+
+  octopus-jaeger:
+    image: jaegertracing/all-in-one:latest
+    ports:
+      - "16686:16686"
+      - "4318:4318"
+    environment:
+      - COLLECTOR_OTLP_ENABLED=true
