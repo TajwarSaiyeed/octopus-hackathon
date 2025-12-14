@@ -673,18 +673,35 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+      - name: Extract first tag for Trivy
+        id: first-tag
+        run: |
+          FIRST_TAG=$(echo "${{ steps.meta.outputs.tags }}" | head -n1)
+          echo "tag=$FIRST_TAG" >> $GITHUB_OUTPUT
+          echo "Using tag for Trivy scan: $FIRST_TAG"
+
       - name: Run Trivy vulnerability scanner on image
+        id: trivy-scan
         uses: aquasecurity/trivy-action@master
         with:
-          image-ref: ${{ fromJSON(steps.build.outputs.metadata)['image.name'] }}
+          image-ref: ${{ steps.first-tag.outputs.tag }}
           format: "sarif"
           output: "trivy-image-results.sarif"
           severity: "CRITICAL,HIGH"
         continue-on-error: true
 
+      - name: Check if SARIF file exists
+        id: check-sarif
+        run: |
+          if [ -f "trivy-image-results.sarif" ]; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+          fi
+
       - name: Upload Trivy image results to GitHub Security
         uses: github/codeql-action/upload-sarif@v3
-        if: always()
+        if: steps.check-sarif.outputs.exists == 'true'
         with:
           sarif_file: "trivy-image-results.sarif"
 
