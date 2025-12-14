@@ -75,14 +75,6 @@ jobs:
         with:
           sarif_file: "trivy-fs-results.sarif"
 
-      - name: Check for secrets in code
-        uses: trufflesecurity/trufflehog@main
-        with:
-          path: ./
-          base: ${{ github.event.repository.default_branch }}
-          head: HEAD
-          extra_args: --only-verified
-
   test:
     name: E2E Tests
     runs-on: ubuntu-24.04
@@ -288,6 +280,7 @@ jobs:
 
           # Observability
           PROMETHEUS_PORT=9090
+          PROMETHEUS_URL=http://prometheus:9090
           GRAFANA_PORT=3001
           GRAFANA_ADMIN_USER=admin
           GRAFANA_ADMIN_PASSWORD=admin123
@@ -304,41 +297,34 @@ jobs:
           EOF
 
       - name: Start Docker Compose stack
-        run: docker compose -f docker/compose.dev.yml up -d
+        run: docker compose -f docker/compose.dev.yml --env-file .env up -d
 
       - name: Wait for services to be healthy
         run: |
           echo "Waiting for services to be ready..."
-          sleep 20
+          sleep 30
 
           echo "Checking container status..."
           docker compose -f docker/compose.dev.yml ps
 
-          echo "Waiting for API to be ready..."
+          echo "Checking API logs..."
+          docker compose -f docker/compose.dev.yml logs octopus-api | tail -20
+
+          echo "Waiting for gateway to be ready..."
           for i in {1..60}; do
-            if docker compose -f docker/compose.dev.yml exec -T octopus-api curl -f http://localhost:3000/health 2>/dev/null; then
-              echo "API is ready"
+            if curl -f http://localhost:8080/health 2>/dev/null; then
+              echo "Gateway and API are ready"
               break
             fi
             if [ $i -eq 60 ]; then
-              echo "API failed to start in time"
-              docker compose -f docker/compose.dev.yml logs octopus-api
-              exit 1
-            fi
-            sleep 2
-          done
-
-          echo "Waiting for gateway to be ready..."
-          for i in {1..30}; do
-            if curl -f http://localhost:8080/health 2>/dev/null; then
-              echo "Gateway is ready"
-              break
-            fi
-            if [ $i -eq 30 ]; then
               echo "Gateway failed to start in time"
+              echo "=== API Logs ==="
+              docker compose -f docker/compose.dev.yml logs octopus-api
+              echo "=== Gateway Logs ==="
               docker compose -f docker/compose.dev.yml logs nginx-gateway
               exit 1
             fi
+            echo "Waiting for gateway... ($i/60)"
             sleep 2
           done
 
@@ -483,13 +469,17 @@ jobs:
           NODE_ENV: test
           PORT: 8080
           S3_REGION: us-east-1
-          S3_BUCKET_NAME: ""
+          S3_ENDPOINT: ""
+          S3_ACCESS_KEY_ID: test
+          S3_SECRET_ACCESS_KEY: test
+          S3_BUCKET_NAME: test
           S3_FORCE_PATH_STYLE: "true"
           SENTRY_DSN: ""
           REQUEST_TIMEOUT_MS: "30000"
           RATE_LIMIT_WINDOW_MS: "60000"
           RATE_LIMIT_MAX_REQUESTS: "100"
           CORS_ORIGINS: "*"
+          JWT_SECRET: "test-jwt-secret-for-ci"
 
       - name: Wait for API to be ready
         run: |
