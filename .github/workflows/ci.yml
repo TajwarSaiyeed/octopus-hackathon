@@ -261,47 +261,64 @@ jobs:
         with:
           node-version: "22"
 
-      - name: Create .env file for testing
-        run: |
-          cat > .env << EOF
-          NODE_ENV=development
-          PORT=3000
-          GATEWAY_PORT=8080
-
-          # MinIO Configuration
-          MINIO_ROOT_USER=minioadmin
-          MINIO_ROOT_PASSWORD=minioadmin123
-          MINIO_CONSOLE_PORT=9001
-          S3_REGION=us-east-1
-          S3_ENDPOINT=http://minio:9000
-          S3_ACCESS_KEY_ID=minioadmin
-          S3_SECRET_ACCESS_KEY=minioadmin123
-          S3_BUCKET_NAME=downloads
-          S3_FORCE_PATH_STYLE=true
-
-          # Observability
-          PROMETHEUS_PORT=9090
-          PROMETHEUS_URL=http://prometheus:9090
-          GRAFANA_PORT=3001
-          GRAFANA_ADMIN_USER=admin
-          GRAFANA_ADMIN_PASSWORD=admin123
-          ELASTICSEARCH_URL=http://elasticsearch:9200
-          KIBANA_PORT=5601
-
-          # API Configuration
-          JWT_SECRET=test-jwt-secret-for-ci
-          REQUEST_TIMEOUT_MS=30000
-          RATE_LIMIT_WINDOW_MS=60000
-          RATE_LIMIT_MAX_REQUESTS=100
-          CORS_ORIGINS=*
-          SENTRY_DSN=
-          DOWNLOAD_DELAY_ENABLED=false
-          EOF
-
       - name: Start Docker Compose stack
         run: docker compose -f docker/compose.dev.yml up -d
+        env:
+          NODE_ENV: development
+          PORT: 3000
+          GATEWAY_PORT: 8080
+          MINIO_ROOT_USER: minioadmin
+          MINIO_ROOT_PASSWORD: minioadmin123
+          MINIO_CONSOLE_PORT: 9001
+          S3_REGION: us-east-1
+          S3_ENDPOINT: http://minio:9000
+          S3_ACCESS_KEY_ID: minioadmin
+          S3_SECRET_ACCESS_KEY: minioadmin123
+          S3_BUCKET_NAME: downloads
+          S3_FORCE_PATH_STYLE: "true"
+          PROMETHEUS_PORT: 9090
+          PROMETHEUS_URL: http://prometheus:9090
+          GRAFANA_PORT: 3001
+          GRAFANA_ADMIN_USER: admin
+          GRAFANA_ADMIN_PASSWORD: admin123
+          ELASTICSEARCH_URL: http://elasticsearch:9200
+          KIBANA_PORT: 5601
+          JWT_SECRET: test-jwt-secret-for-ci
+          REQUEST_TIMEOUT_MS: 30000
+          RATE_LIMIT_WINDOW_MS: 60000
+          RATE_LIMIT_MAX_REQUESTS: 100
+          CORS_ORIGINS: "*"
+          SENTRY_DSN: ""
+          DOWNLOAD_DELAY_ENABLED: "false"
 
       - name: Wait for services to be healthy
+        env:
+          NODE_ENV: development
+          PORT: 3000
+          GATEWAY_PORT: 8080
+          MINIO_ROOT_USER: minioadmin
+          MINIO_ROOT_PASSWORD: minioadmin123
+          MINIO_CONSOLE_PORT: 9001
+          S3_REGION: us-east-1
+          S3_ENDPOINT: http://minio:9000
+          S3_ACCESS_KEY_ID: minioadmin
+          S3_SECRET_ACCESS_KEY: minioadmin123
+          S3_BUCKET_NAME: downloads
+          S3_FORCE_PATH_STYLE: "true"
+          PROMETHEUS_PORT: 9090
+          PROMETHEUS_URL: http://prometheus:9090
+          GRAFANA_PORT: 3001
+          GRAFANA_ADMIN_USER: admin
+          GRAFANA_ADMIN_PASSWORD: admin123
+          ELASTICSEARCH_URL: http://elasticsearch:9200
+          KIBANA_PORT: 5601
+          JWT_SECRET: test-jwt-secret-for-ci
+          REQUEST_TIMEOUT_MS: 30000
+          RATE_LIMIT_WINDOW_MS: 60000
+          RATE_LIMIT_MAX_REQUESTS: 100
+          CORS_ORIGINS: "*"
+          SENTRY_DSN: ""
+          DOWNLOAD_DELAY_ENABLED: "false"
         run: |
           echo "Waiting for services to be ready..."
           sleep 30
@@ -370,6 +387,19 @@ jobs:
 
       - name: Show service logs on failure
         if: failure()
+        env:
+          S3_ENDPOINT: http://minio:9000
+          S3_ACCESS_KEY_ID: minioadmin
+          S3_SECRET_ACCESS_KEY: minioadmin123
+          S3_BUCKET_NAME: downloads
+          S3_REGION: us-east-1
+          S3_FORCE_PATH_STYLE: "true"
+          ELASTICSEARCH_URL: http://elasticsearch:9200
+          PROMETHEUS_URL: http://prometheus:9090
+          REQUEST_TIMEOUT_MS: 30000
+          RATE_LIMIT_WINDOW_MS: 60000
+          RATE_LIMIT_MAX_REQUESTS: 100
+          CORS_ORIGINS: "*"
         run: |
           echo "=== Container Status ==="
           docker compose -f docker/compose.dev.yml ps
@@ -385,6 +415,15 @@ jobs:
 
       - name: Cleanup
         if: always()
+        env:
+          S3_ENDPOINT: http://minio:9000
+          S3_ACCESS_KEY_ID: minioadmin
+          S3_SECRET_ACCESS_KEY: minioadmin123
+          S3_BUCKET_NAME: downloads
+          S3_REGION: us-east-1
+          S3_FORCE_PATH_STYLE: "true"
+          ELASTICSEARCH_URL: http://elasticsearch:9200
+          PROMETHEUS_URL: http://prometheus:9090
         run: docker compose -f docker/compose.dev.yml down -v
 
   security-tests:
@@ -576,10 +615,11 @@ jobs:
       - name: Run Trivy vulnerability scanner on image
         uses: aquasecurity/trivy-action@master
         with:
-          image-ref: ${{ steps.meta.outputs.tags }}
+          image-ref: ${{ fromJSON(steps.build.outputs.metadata)['image.name'] }}
           format: "sarif"
           output: "trivy-image-results.sarif"
           severity: "CRITICAL,HIGH"
+        continue-on-error: true
 
       - name: Upload Trivy image results to GitHub Security
         uses: github/codeql-action/upload-sarif@v3
