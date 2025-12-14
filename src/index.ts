@@ -14,15 +14,14 @@ import {
   Histogram,
   register,
 } from "prom-client";
-import type { Context } from "hono";
 
 // Type for context variables
-type Variables = {
+interface Variables {
   requestId: string;
   sentry: {
     captureException: (err: Error) => void;
   };
-};
+}
 
 // Helper for optional URL that treats empty string as undefined
 const optionalUrl = z
@@ -118,7 +117,7 @@ app.use(async (c, next) => {
   const start = Date.now();
   await next();
   const duration = (Date.now() - start) / 1000;
-  const route = c.req.routePath || c.req.path;
+  const route = c.req.path;
   const method = c.req.method;
   const status = c.res.status.toString();
 
