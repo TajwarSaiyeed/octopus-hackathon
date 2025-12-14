@@ -49,16 +49,26 @@ process.on("SIGTERM", () => {
   process.exit(1);
 });
 
-async function waitForServer(maxAttempts = 30): Promise<boolean> {
+async function waitForServer(maxAttempts = 60): Promise<boolean> {
+  const port = process.env.PORT ?? "8080";
+  const url = `http://localhost:${port}/health`;
+  console.log(`Waiting for server at ${url}...`);
+
   for (let i = 0; i < maxAttempts; i++) {
     try {
-      const response = await fetch("http://localhost:8080/health");
+      const response = await fetch(url);
       // Accept any response (200 or 503) - server is running
       if (response.status === 200 || response.status === 503) {
+        console.log(`Server responded with status ${response.status}`);
         return true;
       }
-    } catch {
-      // Server not ready yet
+      console.log(
+        `Server responded with unexpected status: ${response.status}`,
+      );
+    } catch (error) {
+      if (i % 10 === 0) {
+        console.log(`Attempt ${i + 1}/${maxAttempts}...`);
+      }
     }
     await new Promise((resolve) => setTimeout(resolve, 1000));
   }
@@ -106,10 +116,13 @@ async function runTests(): Promise<number> {
   console.log(`${colors.yellow}Running E2E tests...${colors.reset}`);
   console.log();
 
+  const port = process.env.PORT ?? "8080";
+  const testUrl = `http://localhost:${port}`;
+
   return new Promise((resolve) => {
     const testProcess = spawn(
       "node",
-      ["--experimental-transform-types", "scripts/e2e-test.ts"],
+      ["--experimental-transform-types", "scripts/e2e-test.ts", testUrl],
       {
         cwd: projectDir,
         stdio: "inherit",
