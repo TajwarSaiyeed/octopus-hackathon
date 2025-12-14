@@ -28,3 +28,4 @@ lerna-debug.log*
 .DS_Store
 data/
 PROJECT_OVERVIEW.md
+package-lock.json
