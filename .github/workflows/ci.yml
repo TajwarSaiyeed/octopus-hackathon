@@ -33,6 +33,65 @@ jobs:
       - name: Check formatting
         run: pnpm format:check
 
+  security:
+    name: Security Scan
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run npm audit
+        run: pnpm audit --audit-level=moderate
+        continue-on-error: true
+
+      - name: Run Snyk to check for vulnerabilities
+        if: secrets.SNYK_TOKEN != ''
+        uses: snyk/actions/node@master
+        continue-on-error: true
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        with:
+          args: --severity-threshold=high
+
+      - name: Trivy vulnerability scanner (filesystem)
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: "fs"
+          scan-ref: "."
+          format: "sarif"
+          output: "trivy-fs-results.sarif"
+          severity: "CRITICAL,HIGH"
+
+      - name: Upload Trivy results to GitHub Security
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: "trivy-fs-results.sarif"
+
+      - name: Check for secrets in code
+        uses: trufflesecurity/trufflehog@main
+        with:
+          path: ./
+          base: ${{ github.event.repository.default_branch }}
+          head: HEAD
+          extra_args: --only-verified
+
   test:
     name: E2E Tests
     runs-on: ubuntu-24.04
@@ -259,13 +318,43 @@ jobs:
       - name: Wait for services to be healthy
         run: |
           echo "Waiting for services to be ready..."
-          sleep 30
+          sleep 20
+
+          echo "Checking container status..."
           docker compose -f docker/compose.dev.yml ps
+
+          echo "Waiting for API to be ready..."
+          for i in {1..60}; do
+            if docker compose -f docker/compose.dev.yml exec -T octopus-api curl -f http://localhost:3000/health 2>/dev/null; then
+              echo "API is ready"
+              break
+            fi
+            if [ $i -eq 60 ]; then
+              echo "API failed to start in time"
+              docker compose -f docker/compose.dev.yml logs octopus-api
+              exit 1
+            fi
+            sleep 2
+          done
+
+          echo "Waiting for gateway to be ready..."
+          for i in {1..30}; do
+            if curl -f http://localhost:8080/health 2>/dev/null; then
+              echo "Gateway is ready"
+              break
+            fi
+            if [ $i -eq 30 ]; then
+              echo "Gateway failed to start in time"
+              docker compose -f docker/compose.dev.yml logs nginx-gateway
+              exit 1
+            fi
+            sleep 2
+          done
 
       - name: Test Gateway accessibility
         run: |
           echo "Testing gateway health endpoint..."
-          curl -f http://localhost:8080/health || exit 1
+          curl -v http://localhost:8080/health || exit 1
 
           echo "Testing gateway metrics endpoint..."
           curl -f http://localhost:8080/metrics || exit 1
@@ -302,11 +391,79 @@ jobs:
 
       - name: Show service logs on failure
         if: failure()
-        run: docker compose -f docker/compose.dev.yml logs
+        run: |
+          echo "=== Container Status ==="
+          docker compose -f docker/compose.dev.yml ps
+          echo ""
+          echo "=== Nginx Gateway Logs ==="
+          docker compose -f docker/compose.dev.yml logs nginx-gateway
+          echo ""
+          echo "=== API Logs ==="
+          docker compose -f docker/compose.dev.yml logs octopus-api
+          echo ""
+          echo "=== MinIO Logs ==="
+          docker compose -f docker/compose.dev.yml logs minio
 
       - name: Cleanup
         if: always()
         run: docker compose -f docker/compose.dev.yml down -v
+
+  security-tests:
+    name: Security Tests
+    runs-on: ubuntu-24.04
+    needs: lint
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Start API server
+        run: pnpm start &
+        env:
+          NODE_ENV: test
+          PORT: 8080
+          S3_REGION: us-east-1
+          S3_ENDPOINT: ""
+          S3_ACCESS_KEY_ID: test
+          S3_SECRET_ACCESS_KEY: test
+          S3_BUCKET_NAME: test
+          S3_FORCE_PATH_STYLE: "true"
+          SENTRY_DSN: ""
+          REQUEST_TIMEOUT_MS: "30000"
+          RATE_LIMIT_WINDOW_MS: "60000"
+          RATE_LIMIT_MAX_REQUESTS: "100"
+          CORS_ORIGINS: "*"
+          JWT_SECRET: "test-jwt-secret-for-ci"
+
+      - name: Wait for API to be ready
+        run: |
+          for i in {1..30}; do
+            if curl -f http://localhost:8080/health 2>/dev/null; then
+              echo "API is ready"
+              exit 0
+            fi
+            echo "Waiting for API... ($i/30)"
+            sleep 2
+          done
+          echo "API failed to start"
+          exit 1
+
+      - name: Run security tests
+        run: pnpm test:security
+        env:
+          API_URL: http://localhost:8080
 
   performance:
     name: Performance Tests
@@ -366,7 +523,11 @@ jobs:
   build:
     name: Build and Push Docker Image
     runs-on: ubuntu-24.04
-    needs: [test, integration, docker-compose, performance]
+    needs:
+      [test, integration, docker-compose, performance, security, security-tests]
+    permissions:
+      contents: read
+      security-events: write
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -392,14 +553,39 @@ jobs:
             type=sha,prefix={{branch}}-
             type=raw,value=latest,enable={{is_default_branch}}
 
-      - name: Build and push Docker image
+      - name: Build Docker image
         uses: docker/build-push-action@v6
+        id: build
         with:
           context: .
           file: docker/Dockerfile.prod
-          push: ${{ github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master') }}
+          push: false
+          load: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Run Trivy vulnerability scanner on image
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ steps.meta.outputs.tags }}
+          format: "sarif"
+          output: "trivy-image-results.sarif"
+          severity: "CRITICAL,HIGH"
+
+      - name: Upload Trivy image results to GitHub Security
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: "trivy-image-results.sarif"
+
+      - name: Push Docker image
+        if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+        run: |
+          for tag in $(echo "${{ steps.meta.outputs.tags }}" | tr ',' '\n'); do
+            docker push "$tag"
+          done
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
