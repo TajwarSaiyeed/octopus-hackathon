@@ -2,7 +2,7 @@
   "name": "octopus-hackathon-api",
   "type": "module",
   "engines": {
-    "node": ">=24.10.0"
+    "node": ">=22.0.0"
   },
   "scripts": {
     "dev": "node --experimental-transform-types --watch src/index.ts",
@@ -32,7 +32,9 @@
   "devDependencies": {
     "@hono/eslint-config": "^2.0.3",
     "@types/node": "^24.10.2",
+    "eslint": "^9.39.2",
     "prettier": "^3.7.4",
-    "typescript": "^5.8.3"
+    "typescript": "^5.8.3",
+    "typescript-eslint": "^8.49.0"
   }
 }

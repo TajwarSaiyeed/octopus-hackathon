@@ -8,7 +8,21 @@ import { cors } from "hono/cors";
 import { secureHeaders } from "hono/secure-headers";
 import { timeout } from "hono/timeout";
 import { rateLimiter } from "hono-rate-limiter";
-import { collectDefaultMetrics, Counter, Histogram, register } from "prom-client";
+import {
+  collectDefaultMetrics,
+  Counter,
+  Histogram,
+  register,
+} from "prom-client";
+import type { Context } from "hono";
+
+// Type for context variables
+type Variables = {
+  requestId: string;
+  sentry: {
+    captureException: (err: Error) => void;
+  };
+};
 
 // Helper for optional URL that treats empty string as undefined
 const optionalUrl = z
@@ -89,7 +103,7 @@ const s3AvailabilityChecks = new Counter({
   labelNames: ["available"],
 });
 
-const app = new OpenAPIHono();
+const app = new OpenAPIHono<{ Variables: Variables }>();
 
 // Request ID middleware - adds unique ID to each request
 app.use(async (c, next) => {
@@ -127,7 +141,7 @@ app.use(
       "X-RateLimit-Remaining",
     ],
     maxAge: 86400,
-  }),
+  })
 );
 
 // Request timeout middleware
@@ -143,14 +157,14 @@ app.use(
       c.req.header("x-forwarded-for")?.split(",")[0]?.trim() ??
       c.req.header("x-real-ip") ??
       "anonymous",
-  }),
+  })
 );
 
 // Sentry middleware
 app.use(
   sentry({
     dsn: env.SENTRY_DSN,
-  }),
+  })
 );
 
 // Error response schema for OpenAPI
@@ -175,7 +189,7 @@ app.onError((err, c) => {
           : "An unexpected error occurred",
       requestId,
     },
-    500,
+    500
   );
 });
 
@@ -302,7 +316,7 @@ const checkS3Health = async (): Promise<boolean> => {
 
 // S3 availability check
 const checkS3Availability = async (
-  fileId: number,
+  fileId: number
 ): Promise<{
   available: boolean;
   s3Key: string | null;
@@ -414,7 +428,7 @@ app.openapi(healthRoute, async (c) => {
         storage: storageHealthy ? "ok" : "error",
       },
     },
-    httpStatus,
+    httpStatus
   );
 });
 
@@ -521,7 +535,7 @@ app.openapi(downloadInitiateRoute, (c) => {
       status: "queued" as const,
       totalFileIds: file_ids.length,
     },
-    200,
+    200
   );
 });
 
@@ -532,7 +546,7 @@ app.openapi(downloadCheckRoute, async (c) => {
   // Intentional error for Sentry testing (hackathon challenge)
   if (sentry_test === "true") {
     throw new Error(
-      `Sentry test error triggered for file_id=${String(file_id)} - This should appear in Sentry!`,
+      `Sentry test error triggered for file_id=${String(file_id)} - This should appear in Sentry!`
     );
   }
 
@@ -542,7 +556,7 @@ app.openapi(downloadCheckRoute, async (c) => {
       file_id,
       ...s3Result,
     },
-    200,
+    200
   );
 });
 
@@ -602,14 +616,11 @@ app.openapi(downloadStartRoute, async (c) => {
   const minDelaySec = (env.DOWNLOAD_DELAY_MIN_MS / 1000).toFixed(0);
   const maxDelaySec = (env.DOWNLOAD_DELAY_MAX_MS / 1000).toFixed(0);
   console.log(
-    `[Download] Starting file_id=${String(file_id)} | delay=${delaySec}s (range: ${minDelaySec}s-${maxDelaySec}s) | enabled=${String(env.DOWNLOAD_DELAY_ENABLED)}`,
+    `[Download] Starting file_id=${String(file_id)} | delay=${delaySec}s (range: ${minDelaySec}s-${maxDelaySec}s) | enabled=${String(env.DOWNLOAD_DELAY_ENABLED)}`
   );
 
   // Record download delay metric
-  downloadDelaySeconds.observe(
-    { file_id: file_id.toString() },
-    delayMs / 1000,
-  );
+  downloadDelaySeconds.observe({ file_id: file_id.toString() }, delayMs / 1000);
 
   // Simulate long-running download process
   await sleep(delayMs);
@@ -619,7 +630,7 @@ app.openapi(downloadStartRoute, async (c) => {
   const processingTimeMs = Date.now() - startTime;
 
   console.log(
-    `[Download] Completed file_id=${String(file_id)}, actual_time=${String(processingTimeMs)}ms, available=${String(s3Result.available)}`,
+    `[Download] Completed file_id=${String(file_id)}, actual_time=${String(processingTimeMs)}ms, available=${String(s3Result.available)}`
   );
 
   if (s3Result.available) {
@@ -632,7 +643,7 @@ app.openapi(downloadStartRoute, async (c) => {
         processingTimeMs,
         message: `Download ready after ${(processingTimeMs / 1000).toFixed(1)} seconds`,
       },
-      200,
+      200
     );
   } else {
     return c.json(
@@ -644,7 +655,7 @@ app.openapi(downloadStartRoute, async (c) => {
         processingTimeMs,
         message: `File not found after ${(processingTimeMs / 1000).toFixed(1)} seconds of processing`,
       },
-      200,
+      200
     );
   }
 });
@@ -666,7 +677,13 @@ if (env.NODE_ENV !== "production") {
       version: "1.0.0",
       description: "API for Octopus Hackathon - File Download System",
     },
-    servers: [{ url: "http://localhost:3000", description: "Local server" }],
+    servers: [
+      { url: "http://localhost:8080", description: "Gateway (Development)" },
+      {
+        url: "http://localhost:3000",
+        description: "Direct API (Internal Only)",
+      },
+    ],
   });
 
   // Scalar API docs
@@ -704,7 +721,7 @@ const server = serve(
     if (env.NODE_ENV !== "production") {
       console.log(`API docs: http://localhost:${String(info.port)}/docs`);
     }
-  },
+  }
 );
 
 // Register shutdown handlers

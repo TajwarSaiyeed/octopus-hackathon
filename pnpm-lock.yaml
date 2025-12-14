@@ -42,12 +42,18 @@ importers:
       '@types/node':
         specifier: ^24.10.2
         version: 24.10.4
+      eslint:
+        specifier: ^9.39.2
+        version: 9.39.2
       prettier:
         specifier: ^3.7.4
         version: 3.7.4
       typescript:
         specifier: ^5.8.3
         version: 5.9.3
+      typescript-eslint:
+        specifier: ^8.49.0
+        version: 8.49.0(eslint@9.39.2)(typescript@5.9.3)
 
 packages:
 
