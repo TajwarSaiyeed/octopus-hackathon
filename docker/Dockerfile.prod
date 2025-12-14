@@ -13,12 +13,11 @@ RUN pnpm install --prod --frozen-lockfile
 
 FROM node:24-alpine
 
-# Install tini for proper signal handling
-RUN apk add --no-cache tini
-
-WORKDIR /app
-
-# Copy only production dependencies
+# Install tini and update npm to patch vulnerabilities
+RUN apk add --no-cache tini && \
+  npm install -g npm@latest && \
+  corepack enable && \
+  corepack prepare pnpm@latest --activate
 COPY --from=builder /app/node_modules ./node_modules
 COPY package.json ./
 COPY src ./src
