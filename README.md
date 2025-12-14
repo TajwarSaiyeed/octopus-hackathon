@@ -1,3 +1,5 @@
+[![CI](https://github.com/TajwarSaiyeed/octopus-hackathon/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/TajwarSaiyeed/octopus-hackathon/actions/workflows/ci.yml)
+
 # Octopus Hackathon - File Download API
 
 ## The Scenario
