@@ -1,18 +1,14 @@
 import { HeadObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import { serve } from "@hono/node-server";
 import type { ServerType } from "@hono/node-server";
-import { httpInstrumentationMiddleware } from "@hono/otel";
 import { sentry } from "@hono/sentry";
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
-import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-http";
-import { resourceFromAttributes } from "@opentelemetry/resources";
-import { NodeSDK } from "@opentelemetry/sdk-node";
-import { ATTR_SERVICE_NAME } from "@opentelemetry/semantic-conventions";
 import { Scalar } from "@scalar/hono-api-reference";
 import { cors } from "hono/cors";
 import { secureHeaders } from "hono/secure-headers";
 import { timeout } from "hono/timeout";
 import { rateLimiter } from "hono-rate-limiter";
+import { collectDefaultMetrics, Counter, Histogram, register } from "prom-client";
 
 // Helper for optional URL that treats empty string as undefined
 const optionalUrl = z
@@ -34,7 +30,6 @@ const EnvSchema = z.object({
   S3_BUCKET_NAME: z.string().default(""),
   S3_FORCE_PATH_STYLE: z.coerce.boolean().default(false),
   SENTRY_DSN: optionalUrl,
-  OTEL_EXPORTER_OTLP_ENDPOINT: optionalUrl,
   REQUEST_TIMEOUT_MS: z.coerce.number().int().min(1000).default(30000),
   RATE_LIMIT_WINDOW_MS: z.coerce.number().int().min(1000).default(60000),
   RATE_LIMIT_MAX_REQUESTS: z.coerce.number().int().min(1).default(100),
@@ -65,14 +60,34 @@ const s3Client = new S3Client({
   forcePathStyle: env.S3_FORCE_PATH_STYLE,
 });
 
-// Initialize OpenTelemetry SDK
-const otelSDK = new NodeSDK({
-  resource: resourceFromAttributes({
-    [ATTR_SERVICE_NAME]: "octopus-hackathon-api",
-  }),
-  traceExporter: new OTLPTraceExporter(),
+// Initialize Prometheus Metrics
+collectDefaultMetrics({ prefix: "octopus_" });
+
+const httpRequestsTotal = new Counter({
+  name: "octopus_http_requests_total",
+  help: "Total number of HTTP requests",
+  labelNames: ["method", "route", "status"],
 });
-otelSDK.start();
+
+const httpRequestDuration = new Histogram({
+  name: "octopus_http_request_duration_seconds",
+  help: "HTTP request duration in seconds",
+  labelNames: ["method", "route", "status"],
+  buckets: [0.1, 0.3, 0.5, 1, 2, 5, 10, 30, 60, 120, 180],
+});
+
+const downloadDelaySeconds = new Histogram({
+  name: "octopus_download_delay_seconds",
+  help: "Simulated download delay in seconds",
+  labelNames: ["file_id"],
+  buckets: [10, 30, 60, 90, 120, 150, 180, 210, 240],
+});
+
+const s3AvailabilityChecks = new Counter({
+  name: "octopus_s3_availability_checks_total",
+  help: "Total S3 availability checks",
+  labelNames: ["available"],
+});
 
 const app = new OpenAPIHono();
 
@@ -82,6 +97,19 @@ app.use(async (c, next) => {
   c.set("requestId", requestId);
   c.header("x-request-id", requestId);
   await next();
+});
+
+// Prometheus metrics middleware
+app.use(async (c, next) => {
+  const start = Date.now();
+  await next();
+  const duration = (Date.now() - start) / 1000;
+  const route = c.req.routePath || c.req.path;
+  const method = c.req.method;
+  const status = c.res.status.toString();
+
+  httpRequestsTotal.inc({ method, route, status });
+  httpRequestDuration.observe({ method, route, status }, duration);
 });
 
 // Security headers middleware (helmet-like)
@@ -115,13 +143,6 @@ app.use(
       c.req.header("x-forwarded-for")?.split(",")[0]?.trim() ??
       c.req.header("x-real-ip") ??
       "anonymous",
-  }),
-);
-
-// OpenTelemetry middleware
-app.use(
-  httpInstrumentationMiddleware({
-    serviceName: "octopus-hackathon-api",
   }),
 );
 
@@ -292,6 +313,7 @@ const checkS3Availability = async (
   // If no bucket configured, use mock mode
   if (!env.S3_BUCKET_NAME) {
     const available = fileId % 7 === 0;
+    s3AvailabilityChecks.inc({ available: available.toString() });
     return {
       available,
       s3Key: available ? s3Key : null,
@@ -305,12 +327,14 @@ const checkS3Availability = async (
       Key: s3Key,
     });
     const response = await s3Client.send(command);
+    s3AvailabilityChecks.inc({ available: "true" });
     return {
       available: true,
       s3Key,
       size: response.ContentLength ?? null,
     };
   } catch {
+    s3AvailabilityChecks.inc({ available: "false" });
     return {
       available: false,
       s3Key: null,
@@ -581,6 +605,12 @@ app.openapi(downloadStartRoute, async (c) => {
     `[Download] Starting file_id=${String(file_id)} | delay=${delaySec}s (range: ${minDelaySec}s-${maxDelaySec}s) | enabled=${String(env.DOWNLOAD_DELAY_ENABLED)}`,
   );
 
+  // Record download delay metric
+  downloadDelaySeconds.observe(
+    { file_id: file_id.toString() },
+    delayMs / 1000,
+  );
+
   // Simulate long-running download process
   await sleep(delayMs);
 
@@ -619,6 +649,14 @@ app.openapi(downloadStartRoute, async (c) => {
   }
 });
 
+// Prometheus metrics endpoint
+app.get("/metrics", async (c) => {
+  const metrics = await register.metrics();
+  return c.text(metrics, 200, {
+    "Content-Type": register.contentType,
+  });
+});
+
 // OpenAPI spec endpoint (disabled in production)
 if (env.NODE_ENV !== "production") {
   app.doc("/openapi", {
@@ -643,21 +681,14 @@ const gracefulShutdown = (server: ServerType) => (signal: string) => {
   server.close(() => {
     console.log("HTTP server closed");
 
-    // Shutdown OpenTelemetry to flush traces
-    otelSDK
-      .shutdown()
-      .then(() => {
-        console.log("OpenTelemetry SDK shut down");
-      })
-      .catch((err: unknown) => {
-        console.error("Error shutting down OpenTelemetry:", err);
-      })
-      .finally(() => {
-        // Destroy S3 client
-        s3Client.destroy();
-        console.log("S3 client destroyed");
-        console.log("Graceful shutdown completed");
-      });
+    // Clear Prometheus metrics
+    register.clear();
+    console.log("Prometheus metrics cleared");
+
+    // Destroy S3 client
+    s3Client.destroy();
+    console.log("S3 client destroyed");
+    console.log("Graceful shutdown completed");
   });
 };
 
