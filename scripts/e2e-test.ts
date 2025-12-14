@@ -70,7 +70,7 @@ async function testRoot(): Promise<void> {
     logFail(
       "Root returns welcome message",
       '{"message":"Hello Hono!"}',
-      JSON.stringify(data)
+      JSON.stringify(data),
     );
   }
 }
@@ -91,7 +91,7 @@ async function testHealth(): Promise<void> {
     logFail(
       "Health returns valid status code",
       "200 or 503",
-      String(response.status)
+      String(response.status),
     );
   }
 
@@ -105,7 +105,7 @@ async function testHealth(): Promise<void> {
     logFail(
       "Health status matches response code",
       `"status":"${response.status === 200 ? "healthy" : "unhealthy"}"`,
-      data.status ?? "undefined"
+      data.status ?? "undefined",
     );
   }
 
@@ -116,7 +116,7 @@ async function testHealth(): Promise<void> {
     logFail(
       "Storage check returns valid status",
       '"storage":"ok" or "error"',
-      data.checks?.storage ?? "undefined"
+      data.checks?.storage ?? "undefined",
     );
   }
 }
@@ -141,7 +141,7 @@ async function testSecurityHeaders(): Promise<void> {
     logFail(
       "RateLimit-Limit header present",
       "ratelimit-limit: <number>",
-      "not found"
+      "not found",
     );
   }
 
@@ -151,7 +151,7 @@ async function testSecurityHeaders(): Promise<void> {
     logFail(
       "RateLimit-Remaining header present",
       "ratelimit-remaining: <number>",
-      "not found"
+      "not found",
     );
   }
 
@@ -162,7 +162,7 @@ async function testSecurityHeaders(): Promise<void> {
     logFail(
       "X-Content-Type-Options header present",
       "x-content-type-options: nosniff",
-      headers.get("x-content-type-options") ?? "not found"
+      headers.get("x-content-type-options") ?? "not found",
     );
   }
 
@@ -172,7 +172,7 @@ async function testSecurityHeaders(): Promise<void> {
     logFail(
       "X-Frame-Options header present",
       "x-frame-options: SAMEORIGIN",
-      "not found"
+      "not found",
     );
   }
 
@@ -182,7 +182,7 @@ async function testSecurityHeaders(): Promise<void> {
     logFail(
       "Strict-Transport-Security header present",
       "strict-transport-security: ...",
-      "not found"
+      "not found",
     );
   }
 
@@ -193,7 +193,7 @@ async function testSecurityHeaders(): Promise<void> {
     logFail(
       "CORS Access-Control-Allow-Origin header present",
       "access-control-allow-origin: *",
-      "not found"
+      "not found",
     );
   }
 }
@@ -219,7 +219,7 @@ async function testDownloadInitiate(): Promise<void> {
     logFail(
       "Download initiate returns jobId",
       '"jobId": "<uuid>"',
-      JSON.stringify(data)
+      JSON.stringify(data),
     );
   }
 
@@ -229,7 +229,7 @@ async function testDownloadInitiate(): Promise<void> {
     logFail(
       "Download initiate status is queued",
       '"status":"queued"',
-      data.status ?? "undefined"
+      data.status ?? "undefined",
     );
   }
 
@@ -239,7 +239,7 @@ async function testDownloadInitiate(): Promise<void> {
     logFail(
       "Download initiate totalFileIds is correct",
       '"totalFileIds":3',
-      String(data.totalFileIds)
+      String(data.totalFileIds),
     );
   }
 
@@ -256,7 +256,7 @@ async function testDownloadInitiate(): Promise<void> {
     logFail(
       "Download initiate rejects file_id < 10000",
       "400",
-      String(invalidResponse1.status)
+      String(invalidResponse1.status),
     );
   }
 
@@ -273,7 +273,7 @@ async function testDownloadInitiate(): Promise<void> {
     logFail(
       "Download initiate rejects empty file_ids array",
       "400",
-      String(invalidResponse2.status)
+      String(invalidResponse2.status),
     );
   }
 }
@@ -298,7 +298,7 @@ async function testDownloadCheck(): Promise<void> {
     logFail(
       "Download check returns correct file_id",
       '"file_id":70000',
-      String(data.file_id)
+      String(data.file_id),
     );
   }
 
@@ -308,7 +308,7 @@ async function testDownloadCheck(): Promise<void> {
     logFail(
       "Download check returns available field",
       '"available": true/false',
-      String(data.available)
+      String(data.available),
     );
   }
 
@@ -326,7 +326,7 @@ async function testDownloadCheck(): Promise<void> {
     logFail(
       "Download check returns correct file_id for non-existent file",
       '"file_id":99999',
-      String(data2.file_id)
+      String(data2.file_id),
     );
   }
 
@@ -343,7 +343,7 @@ async function testDownloadCheck(): Promise<void> {
     logFail(
       "Download check rejects file_id < 10000",
       "400",
-      String(invalidResponse1.status)
+      String(invalidResponse1.status),
     );
   }
 
@@ -360,7 +360,7 @@ async function testDownloadCheck(): Promise<void> {
     logFail(
       "Download check rejects file_id > 100000000",
       "400",
-      String(invalidResponse2.status)
+      String(invalidResponse2.status),
     );
   }
 }
@@ -380,7 +380,7 @@ async function testRequestId(): Promise<void> {
     logFail(
       "Custom X-Request-ID is respected",
       customId,
-      response1.headers.get("x-request-id") ?? "not found"
+      response1.headers.get("x-request-id") ?? "not found",
     );
   }
 
@@ -396,7 +396,7 @@ async function testRequestId(): Promise<void> {
     logFail(
       "Auto-generated X-Request-ID is valid UUID",
       "UUID format",
-      generatedId ?? "not found"
+      generatedId ?? "not found",
     );
   }
 }
@@ -418,7 +418,7 @@ async function testContentType(): Promise<void> {
     logFail(
       "POST with invalid JSON is rejected",
       "400 or 500",
-      String(response.status)
+      String(response.status),
     );
   }
 
@@ -440,7 +440,7 @@ async function testContentType(): Promise<void> {
     logFail(
       "POST with text/plain Content-Type is handled",
       "400, 415, or 200",
-      String(response2.status)
+      String(response2.status),
     );
   }
 }
@@ -457,7 +457,7 @@ async function testMethodNotAllowed(): Promise<void> {
     logFail(
       "DELETE on root returns 404/405",
       "404 or 405",
-      String(response1.status)
+      String(response1.status),
     );
   }
 
@@ -470,7 +470,7 @@ async function testMethodNotAllowed(): Promise<void> {
     logFail(
       "GET on POST-only endpoint returns 404/405",
       "404 or 405",
-      String(response2.status)
+      String(response2.status),
     );
   }
 }
@@ -499,7 +499,7 @@ async function testRateLimiting(): Promise<void> {
     logFail(
       "Rate limit remaining continues to be tracked",
       "number",
-      newRemaining ?? "not found"
+      newRemaining ?? "not found",
     );
   }
 }

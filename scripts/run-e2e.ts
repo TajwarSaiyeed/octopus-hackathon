@@ -82,7 +82,7 @@ async function startServer(): Promise<ChildProcess> {
       cwd: projectDir,
       stdio: ["ignore", "pipe", "pipe"],
       env: { ...process.env },
-    }
+    },
   );
 
   server.stdout?.on("data", (data: Buffer) => {
@@ -113,7 +113,7 @@ async function runTests(): Promise<number> {
       {
         cwd: projectDir,
         stdio: "inherit",
-      }
+      },
     );
 
     testProcess.on("close", (code) => {
@@ -129,13 +129,13 @@ async function main(): Promise<void> {
 
     // Wait for server to be ready
     console.log(
-      `Waiting for server to start (PID: ${String(serverProcess.pid)})...`
+      `Waiting for server to start (PID: ${String(serverProcess.pid)})...`,
     );
     const serverReady = await waitForServer();
 
     if (!serverReady) {
       console.error(
-        `${colors.red}Server did not become ready in time.${colors.reset}`
+        `${colors.red}Server did not become ready in time.${colors.reset}`,
       );
       cleanup();
       process.exit(1);

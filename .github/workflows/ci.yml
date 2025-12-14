@@ -63,10 +63,266 @@ jobs:
           RATE_LIMIT_MAX_REQUESTS: "100"
           CORS_ORIGINS: "*"
 
+  integration:
+    name: Integration Tests
+    runs-on: ubuntu-24.04
+    needs: lint
+    services:
+      minio:
+        image: minio/minio:latest
+        env:
+          MINIO_ROOT_USER: minioadmin
+          MINIO_ROOT_PASSWORD: minioadmin123
+          MINIO_PROMETHEUS_AUTH_TYPE: public
+        ports:
+          - 9000:9000
+          - 9001:9001
+        options: >-
+          --health-cmd "curl -f http://localhost:9000/minio/health/live || exit 1"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        volumes:
+          - minio-data:/data
+
+      prometheus:
+        image: prom/prometheus:latest
+        ports:
+          - 9090:9090
+        options: >-
+          --health-cmd "wget --quiet --tries=1 --spider http://localhost:9090/-/healthy || exit 1"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      grafana:
+        image: grafana/grafana:latest
+        env:
+          GF_SECURITY_ADMIN_USER: admin
+          GF_SECURITY_ADMIN_PASSWORD: admin123
+        ports:
+          - 3001:3000
+        options: >-
+          --health-cmd "wget --quiet --tries=1 --spider http://localhost:3000/api/health || exit 1"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      elasticsearch:
+        image: docker.elastic.co/elasticsearch/elasticsearch:8.11.0
+        env:
+          discovery.type: single-node
+          xpack.security.enabled: false
+        ports:
+          - 9200:9200
+        options: >-
+          --health-cmd "curl -f http://localhost:9200/_cluster/health || exit 1"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Start API server
+        run: pnpm start &
+        env:
+          NODE_ENV: test
+          PORT: 8080
+          S3_REGION: us-east-1
+          S3_ENDPOINT: http://localhost:9000
+          S3_ACCESS_KEY_ID: minioadmin
+          S3_SECRET_ACCESS_KEY: minioadmin123
+          S3_BUCKET_NAME: downloads
+          S3_FORCE_PATH_STYLE: "true"
+          SENTRY_DSN: ""
+          REQUEST_TIMEOUT_MS: "30000"
+          RATE_LIMIT_WINDOW_MS: "60000"
+          RATE_LIMIT_MAX_REQUESTS: "100"
+          CORS_ORIGINS: "*"
+
+      - name: Wait for API to be ready
+        run: |
+          for i in {1..30}; do
+            if curl -f http://localhost:8080/health 2>/dev/null; then
+              echo "API is ready"
+              exit 0
+            fi
+            echo "Waiting for API... ($i/30)"
+            sleep 2
+          done
+          echo "API failed to start"
+          exit 1
+
+      - name: Run integration tests
+        run: pnpm test:integration
+        env:
+          API_URL: http://localhost:8080
+          PROMETHEUS_URL: http://localhost:9090
+          GRAFANA_URL: http://localhost:3001
+          ELASTICSEARCH_URL: http://localhost:9200
+
+  docker-compose:
+    name: Docker Compose Stack Test
+    runs-on: ubuntu-24.04
+    needs: lint
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Create .env file for testing
+        run: |
+          cat > .env << EOF
+          NODE_ENV=development
+          PORT=3000
+          GATEWAY_PORT=8080
+
+          # MinIO Configuration
+          MINIO_ROOT_USER=minioadmin
+          MINIO_ROOT_PASSWORD=minioadmin123
+          MINIO_CONSOLE_PORT=9001
+          S3_REGION=us-east-1
+          S3_ENDPOINT=http://minio:9000
+          S3_ACCESS_KEY_ID=minioadmin
+          S3_SECRET_ACCESS_KEY=minioadmin123
+          S3_BUCKET_NAME=downloads
+          S3_FORCE_PATH_STYLE=true
+
+          # Observability
+          PROMETHEUS_PORT=9090
+          GRAFANA_PORT=3001
+          GRAFANA_ADMIN_USER=admin
+          GRAFANA_ADMIN_PASSWORD=admin123
+          ELASTICSEARCH_URL=http://elasticsearch:9200
+          KIBANA_PORT=5601
+
+          # API Configuration
+          JWT_SECRET=test-jwt-secret-for-ci
+          REQUEST_TIMEOUT_MS=30000
+          RATE_LIMIT_WINDOW_MS=60000
+          RATE_LIMIT_MAX_REQUESTS=100
+          CORS_ORIGINS=*
+          SENTRY_DSN=
+          EOF
+
+      - name: Start Docker Compose stack
+        run: docker compose -f docker/compose.dev.yml up -d
+
+      - name: Wait for services to be healthy
+        run: |
+          echo "Waiting for services to be ready..."
+          sleep 30
+          docker compose -f docker/compose.dev.yml ps
+
+      - name: Test Gateway accessibility
+        run: |
+          echo "Testing gateway health endpoint..."
+          curl -f http://localhost:8080/health || exit 1
+
+          echo "Testing gateway metrics endpoint..."
+          curl -f http://localhost:8080/metrics || exit 1
+
+      - name: Test Prometheus
+        run: |
+          echo "Testing Prometheus health..."
+          curl -f http://localhost:9090/-/healthy || exit 1
+
+      - name: Test Grafana
+        run: |
+          echo "Testing Grafana health..."
+          curl -f http://localhost:3001/api/health || exit 1
+
+      - name: Test Elasticsearch
+        run: |
+          echo "Testing Elasticsearch health..."
+          curl -f http://localhost:9200/_cluster/health || exit 1
+
+      - name: Test MinIO
+        run: |
+          echo "Testing MinIO health..."
+          curl -f http://localhost:9000/minio/health/live || exit 1
+
+      - name: Test that direct API access is blocked
+        run: |
+          echo "Verifying direct API access is blocked..."
+          if curl -f http://localhost:3000/health 2>/dev/null; then
+            echo "ERROR: Direct API access should be blocked!"
+            exit 1
+          else
+            echo "✓ Direct API access is correctly blocked"
+          fi
+
+      - name: Show service logs on failure
+        if: failure()
+        run: docker compose -f docker/compose.dev.yml logs
+
+      - name: Cleanup
+        if: always()
+        run: docker compose -f docker/compose.dev.yml down -v
+
+  performance:
+    name: Performance Tests
+    runs-on: ubuntu-24.04
+    needs: lint
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Start API server
+        run: pnpm start &
+        env:
+          NODE_ENV: test
+          PORT: 8080
+          S3_REGION: us-east-1
+          S3_BUCKET_NAME: ""
+          S3_FORCE_PATH_STYLE: "true"
+          SENTRY_DSN: ""
+          REQUEST_TIMEOUT_MS: "30000"
+          RATE_LIMIT_WINDOW_MS: "60000"
+          RATE_LIMIT_MAX_REQUESTS: "100"
+          CORS_ORIGINS: "*"
+
+      - name: Wait for API to be ready
+        run: |
+          for i in {1..30}; do
+            if curl -f http://localhost:8080/health 2>/dev/null; then
+              echo "API is ready"
+              exit 0
+            fi
+            echo "Waiting for API... ($i/30)"
+            sleep 2
+          done
+          echo "API failed to start"
+          exit 1
+
+      - name: Run performance tests
+        run: pnpm test:performance
+        env:
+          API_URL: http://localhost:8080
+          CONCURRENT_REQUESTS: "5"
+          TOTAL_REQUESTS: "50"
+
   build:
     name: Build Docker Image
     runs-on: ubuntu-24.04
-    needs: test
+    needs: [test, integration, docker-compose, performance]
     steps:
       - name: Checkout
         uses: actions/checkout@v4
