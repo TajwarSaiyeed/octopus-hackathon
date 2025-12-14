@@ -10,11 +10,14 @@ jobs:
   lint:
     name: Lint
     runs-on: ubuntu-24.04
-    container:
-      image: node:24-slim
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -37,6 +40,11 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -68,63 +76,14 @@ jobs:
     name: Integration Tests
     runs-on: ubuntu-24.04
     needs: lint
-    services:
-      minio:
-        image: minio/minio:latest
-        env:
-          MINIO_ROOT_USER: minioadmin
-          MINIO_ROOT_PASSWORD: minioadmin123
-          MINIO_PROMETHEUS_AUTH_TYPE: public
-        ports:
-          - 9000:9000
-          - 9001:9001
-        options: >-
-          --health-cmd "curl -f http://localhost:9000/minio/health/live || exit 1"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-        volumes:
-          - minio-data:/data
-
-      prometheus:
-        image: prom/prometheus:latest
-        ports:
-          - 9090:9090
-        options: >-
-          --health-cmd "wget --quiet --tries=1 --spider http://localhost:9090/-/healthy || exit 1"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-
-      grafana:
-        image: grafana/grafana:latest
-        env:
-          GF_SECURITY_ADMIN_USER: admin
-          GF_SECURITY_ADMIN_PASSWORD: admin123
-        ports:
-          - 3001:3000
-        options: >-
-          --health-cmd "wget --quiet --tries=1 --spider http://localhost:3000/api/health || exit 1"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-
-      elasticsearch:
-        image: docker.elastic.co/elasticsearch/elasticsearch:8.11.0
-        env:
-          discovery.type: single-node
-          xpack.security.enabled: false
-        ports:
-          - 9200:9200
-        options: >-
-          --health-cmd "curl -f http://localhost:9200/_cluster/health || exit 1"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -133,6 +92,74 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+
+      - name: Start MinIO
+        run: |
+          docker run -d --name minio \
+            -p 9000:9000 -p 9001:9001 \
+            -e MINIO_ROOT_USER=minioadmin \
+            -e MINIO_ROOT_PASSWORD=minioadmin123 \
+            -e MINIO_PROMETHEUS_AUTH_TYPE=public \
+            minio/minio:latest server /data --console-address :9001
+
+          # Wait for MinIO to be ready
+          for i in {1..30}; do
+            if curl -f http://localhost:9000/minio/health/live 2>/dev/null; then
+              echo "MinIO is ready"
+              break
+            fi
+            echo "Waiting for MinIO... ($i/30)"
+            sleep 2
+          done
+
+      - name: Start Prometheus
+        run: |
+          docker run -d --name prometheus \
+            -p 9090:9090 \
+            prom/prometheus:latest
+
+          # Wait for Prometheus
+          for i in {1..20}; do
+            if curl -f http://localhost:9090/-/healthy 2>/dev/null; then
+              echo "Prometheus is ready"
+              break
+            fi
+            sleep 1
+          done
+
+      - name: Start Grafana
+        run: |
+          docker run -d --name grafana \
+            -p 3001:3000 \
+            -e GF_SECURITY_ADMIN_USER=admin \
+            -e GF_SECURITY_ADMIN_PASSWORD=admin123 \
+            grafana/grafana:latest
+
+          # Wait for Grafana
+          for i in {1..20}; do
+            if curl -f http://localhost:3001/api/health 2>/dev/null; then
+              echo "Grafana is ready"
+              break
+            fi
+            sleep 1
+          done
+
+      - name: Start Elasticsearch
+        run: |
+          docker run -d --name elasticsearch \
+            -p 9200:9200 \
+            -e discovery.type=single-node \
+            -e xpack.security.enabled=false \
+            docker.elastic.co/elasticsearch/elasticsearch:8.11.0
+
+          # Wait for Elasticsearch
+          for i in {1..30}; do
+            if curl -f http://localhost:9200/_cluster/health 2>/dev/null; then
+              echo "Elasticsearch is ready"
+              break
+            fi
+            sleep 2
+          done
 
       - name: Start API server
         run: pnpm start &
@@ -150,6 +177,7 @@ jobs:
           RATE_LIMIT_WINDOW_MS: "60000"
           RATE_LIMIT_MAX_REQUESTS: "100"
           CORS_ORIGINS: "*"
+          JWT_SECRET: "test-jwt-secret-for-ci"
 
       - name: Wait for API to be ready
         run: |
@@ -172,6 +200,11 @@ jobs:
           GRAFANA_URL: http://localhost:3001
           ELASTICSEARCH_URL: http://localhost:9200
 
+      - name: Cleanup containers
+        if: always()
+        run: |
+          docker rm -f minio prometheus grafana elasticsearch 2>/dev/null || true
+
   docker-compose:
     name: Docker Compose Stack Test
     runs-on: ubuntu-24.04
@@ -179,6 +212,11 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
 
       - name: Create .env file for testing
         run: |
@@ -277,6 +315,11 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
