@@ -18,7 +18,7 @@ describe("App Dashboard", () => {
   it("renders the dashboard header", async () => {
     render(<App />);
     expect(
-      screen.getByText("🐙 Octopus Hackathon Dashboard")
+      screen.getByText("🐙 Octopus Hackathon Dashboard"),
     ).toBeInTheDocument();
     // Wait for the initial fetch to settle to avoid act warnings
     await waitFor(() => expect(global.fetch).toHaveBeenCalled());
