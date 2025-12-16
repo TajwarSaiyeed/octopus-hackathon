@@ -45,6 +45,11 @@ jobs:
           cd frontend
           pnpm lint
 
+      - name: Test frontend
+        run: |
+          cd frontend
+          pnpm test run
+
   security:
     name: Security Scan
     runs-on: ubuntu-24.04
