@@ -35,6 +35,16 @@ jobs:
       - name: Check formatting
         run: pnpm format:check
 
+      - name: Install frontend dependencies
+        run: |
+          cd frontend
+          pnpm install --frozen-lockfile
+
+      - name: Lint frontend
+        run: |
+          cd frontend
+          pnpm lint
+
   security:
     name: Security Scan
     runs-on: ubuntu-24.04
@@ -404,6 +414,9 @@ jobs:
           echo "Testing gateway health endpoint..."
           curl -v http://localhost:8080/health || exit 1
 
+          echo "Testing frontend accessibility..."
+          curl -v http://localhost:8080/ || exit 1
+
           echo "Testing gateway metrics endpoint..."
           curl -f http://localhost:8080/metrics || exit 1
 
@@ -722,6 +735,30 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+      - name: Extract metadata for Frontend
+        id: meta-frontend
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ secrets.DOCKERHUB_USERNAME }}/octopus-hackathon-frontend
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=sha,prefix={{branch}}-
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Build Frontend Docker image
+        uses: docker/build-push-action@v6
+        id: build-frontend
+        with:
+          context: frontend
+          file: frontend/Dockerfile
+          push: false
+          load: true
+          tags: ${{ steps.meta-frontend.outputs.tags }}
+          labels: ${{ steps.meta-frontend.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
       - name: Extract first tag for Trivy
         id: first-tag
         run: |
@@ -754,10 +791,13 @@ jobs:
         with:
           sarif_file: "trivy-image-results.sarif"
 
-      - name: Push Docker image
+      - name: Push Docker images
         if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
         run: |
           for tag in $(echo "${{ steps.meta.outputs.tags }}" | tr ',' '\n'); do
+            docker push "$tag"
+          done
+          for tag in $(echo "${{ steps.meta-frontend.outputs.tags }}" | tr ',' '\n'); do
             docker push "$tag"
           done
 

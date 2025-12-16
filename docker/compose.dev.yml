@@ -10,23 +10,28 @@ services:
       - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
     depends_on:
       - octopus-api
+      - frontend
     networks:
       - gateway-network
       - internal-network
     restart: unless-stopped
     healthcheck:
-      test:
-        [
-          "CMD",
-          "wget",
-          "--quiet",
-          "--tries=1",
-          "--spider",
-          "http://localhost:8080/health",
-        ]
+      test: [ "CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8080/health" ]
       interval: 30s
       timeout: 10s
       retries: 3
+
+  # Frontend Service
+  frontend:
+    image: node:24-alpine
+    working_dir: /app
+    volumes:
+      - ../frontend:/app
+    command: sh -c "corepack enable && corepack prepare pnpm@latest --activate && CI=true pnpm install && pnpm dev --host --port 80"
+    networks:
+      - internal-network
+    environment:
+      - VITE_API_URL=/v1
 
   # API Service - No external port exposure
   octopus-api:
@@ -85,7 +90,7 @@ services:
     networks:
       - internal-network
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      test: [ "CMD", "curl", "-f", "http://localhost:9000/minio/health/live" ]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -163,8 +168,7 @@ services:
       - internal-network
       - gateway-network
     healthcheck:
-      test:
-        ["CMD-SHELL", "curl -f http://localhost:9200/_cluster/health || exit 1"]
+      test: [ "CMD-SHELL", "curl -f http://localhost:9200/_cluster/health || exit 1" ]
       interval: 30s
       timeout: 10s
       retries: 5
@@ -186,7 +190,7 @@ services:
       - internal-network
       - gateway-network
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:5601/api/status || exit 1"]
+      test: [ "CMD-SHELL", "curl -f http://localhost:5601/api/status || exit 1" ]
       interval: 30s
       timeout: 10s
       retries: 5
