@@ -8,18 +8,7 @@
     },
     "ghcr.io/devcontainers/features/github-cli:1": {}
   },
-  "forwardPorts": [
-    3000,
-    8080,
-    9000,
-    9001,
-    9090,
-    3001,
-    9200,
-    5601,
-    16686,
-    6379
-  ],
+  "forwardPorts": [3000, 8080, 9000, 9001, 9090, 3001, 9200, 5601, 16686, 6379],
   "portsAttributes": {
     "3000": {
       "label": "API Server",

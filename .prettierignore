@@ -1,1 +1,3 @@
 data/
+pnpm-lock.yaml
+.devcontainer/
