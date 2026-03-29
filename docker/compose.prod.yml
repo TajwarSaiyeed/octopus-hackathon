@@ -192,6 +192,42 @@ services:
       retries: 5
     restart: unless-stopped
 
+  # Jaeger - Distributed Tracing (Internal only)
+  jaeger:
+    image: jaegertracing/all-in-one:latest
+    expose:
+      - "16686"
+      - "14268"
+      - "4317"
+    environment:
+      - COLLECTOR_OTLP_ENABLED=true
+      - COLLECTOR_ZIPKIN_HOST_PORT=:9411
+    networks:
+      - internal-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:16686/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Redis - Queue & Cache for BullMQ (Internal only)
+  redis:
+    image: redis:7-alpine
+    expose:
+      - "6379"
+    command: redis-server --appendonly yes
+    volumes:
+      - redis-data:/data
+    networks:
+      - internal-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+
 networks:
   gateway-network:
     driver: bridge
@@ -204,3 +240,4 @@ volumes:
   prometheus-data:
   grafana-data:
   elasticsearch-data:
+  redis-data:
