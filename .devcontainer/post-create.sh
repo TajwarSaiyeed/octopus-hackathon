@@ -65,13 +65,19 @@ RATE_LIMIT_MAX_REQUESTS=100
 # CORS
 CORS_ORIGINS=*
 
-# Download Delay Simulation
+# Download Delay Simulation (reduced for Codespaces)
 DOWNLOAD_DELAY_ENABLED=true
-DOWNLOAD_DELAY_MIN_MS=10000
-DOWNLOAD_DELAY_MAX_MS=120000
+DOWNLOAD_DELAY_MIN_MS=5000
+DOWNLOAD_DELAY_MAX_MS=30000
 
 # Security
 JWT_SECRET=your-secret-key-change-in-production
+
+# Jaeger Configuration
+JAEGER_ENDPOINT=http://jaeger:4318
+
+# Redis Configuration
+REDIS_URL=redis://redis:6379
 EOF
 
 echo "✅ Setup complete!"
