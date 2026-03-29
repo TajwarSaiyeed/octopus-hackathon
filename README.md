@@ -1,6 +1,17 @@
 [![CI](https://github.com/TajwarSaiyeed/octopus-hackathon/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/TajwarSaiyeed/octopus-hackathon/actions/workflows/ci.yml)
+[![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/TajwarSaiyeed/octopus-hackathon)
 
-# Octopus Hackathon - File Download API
+# 🐙 Octopus Hackathon - File Download API
+
+> **🏆 Octoverse Hackathon 2026 Submission**
+>
+> A production-ready microservice that solves the real-world challenge of handling long-running operations (10-120 seconds) behind reverse proxies like Cloudflare, nginx, and AWS ALB.
+>
+> **Categories:** Best Software Development Project | Best AI / Data-Driven Solution
+>
+> 📄 [Submission Details](SUBMISSION.md) | 🎬 [Demo Video Script](DEMO_VIDEO_SCRIPT.md) | 📐 [Architecture](ARCHITECTURE.md) | 🚀 [Codespaces Setup](CODESPACES_SETUP.md)
+
+---
 
 ## The Scenario
 
